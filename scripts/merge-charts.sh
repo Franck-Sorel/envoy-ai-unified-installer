@@ -27,12 +27,11 @@ log() {
     shift
     local message="$*"
     local timestamp=$(date -u '+%Y-%m-%d %H:%M:%S UTC')
-    echo "[$timestamp] [$level] $message" | tee -a "$LOG_FILE"
+    printf "%s\n" "[$timestamp] [$level] $message" | tee -a "$LOG_FILE"
 }
 
 error() {
     log ERROR "$@"
-    exit 1
 }
 
 warn() {
@@ -47,18 +46,20 @@ validate_tools() {
     local required_tools=("curl" "jq" "tar" "gzip" "python3")
     for tool in "${required_tools[@]}"; do
         if ! command -v "$tool" &>/dev/null; then
-            error "Required tool not found: $tool"
+            log ERROR "Required tool not found: $tool"
+            return 1
         fi
     done
     info "All required tools available"
+    return 0
 }
 
 get_auth_headers() {
     if [[ -n "$GITHUB_TOKEN" ]]; then
-        echo '-H'
-        echo "Authorization: Bearer $GITHUB_TOKEN"
-        echo '-H'
-        echo "X-GitHub-Api-Version: $GITHUB_API_VERSION"
+        printf "%s\n" '-H'
+        printf "%s\n" "Authorization: Bearer $GITHUB_TOKEN"
+        printf "%s\n" '-H'
+        printf "%s\n" "X-GitHub-Api-Version: $GITHUB_API_VERSION"
     else
         warn "GITHUB_TOKEN not set - using unauthenticated requests (rate limits apply)"
     fi
@@ -70,43 +71,48 @@ fetch_latest_release() {
 
     info "Fetching latest release: $owner_repo"
 
-    local api_response
     local http_code
+    local api_response
 
     for attempt in 1 2 3; do
         http_code=$(curl -s -w "%{http_code}" -o /tmp/api_response.json \
             $(get_auth_headers) \
-            "$api_url" 2>/dev/null || true)
+            "$api_url" 2>/dev/null || printf "%s" "000")
 
         if [[ "$http_code" == "200" ]]; then
-            api_response=$(cat /tmp/api_response.json)
+            api_response=$(<"/tmp/api_response.json")
             break
         elif [[ "$http_code" == "403" ]]; then
-            warn "Rate limited or forbidden (HTTP $http_code) - attempt $attempt/$MAX_RETRIES"
+            warn "Rate limited or forbidden (HTTP $http_code) for $owner_repo - attempt $attempt/$MAX_RETRIES"
             if [[ $attempt -lt $MAX_RETRIES ]]; then
                 sleep $((2 ** attempt))
                 continue
             else
                 error "Failed to fetch $owner_repo: HTTP $http_code (rate limit exceeded)"
+                return 1
             fi
         elif [[ "$http_code" == "404" ]]; then
             error "Repository not found: $owner_repo (HTTP 404)"
+            return 1
         else
-            warn "HTTP $http_code from $api_url - attempt $attempt/$MAX_RETRIES"
+            warn "HTTP $http_code from $api_url for $owner_repo - attempt $attempt/$MAX_RETRIES"
             if [[ $attempt -lt $MAX_RETRIES ]]; then
                 sleep $((2 ** attempt))
                 continue
             else
                 error "Failed to fetch $owner_repo after $MAX_RETRIES attempts"
+                return 1
             fi
         fi
     done
 
-    if ! echo "$api_response" | jq empty 2>/dev/null; then
-        error "Invalid JSON response from GitHub API for $owner_repo. Raw response: $api_response"
+    if ! printf "%s" "$api_response" | jq empty 2>/dev/null; then
+        error "Invalid JSON response from GitHub API for $owner_repo"
+        warn "Raw response: ${api_response:0:200}"
+        return 1
     fi
 
-    echo "$api_response"
+    printf "%s" "$api_response"
 }
 
 get_download_url() {
@@ -114,28 +120,30 @@ get_download_url() {
     local repo_key="$2"
 
     local tag_name
-    tag_name=$(echo "$api_json" | jq -r '.tag_name // empty' 2>/dev/null)
+    tag_name=$(printf "%s" "$api_json" | jq -r '.tag_name // empty' 2>/dev/null)
 
     if [[ -z "$tag_name" ]] || [[ "$tag_name" == "null" ]]; then
-        error "No tag_name in API response for $repo_key"
+        error "No tag_name in API response for $repo_key - skipping"
+        return 1
     fi
 
     local tgz_url
-    tgz_url=$(echo "$api_json" | jq -r '.assets[] | select(.browser_download_url | endswith(".tgz")) | .browser_download_url' 2>/dev/null | head -n 1)
+    tgz_url=$(printf "%s" "$api_json" | jq -r '.assets[] | select(.browser_download_url | endswith(".tgz")) | .browser_download_url' 2>/dev/null | head -n 1 || true)
 
     if [[ -n "$tgz_url" ]] && [[ "$tgz_url" != "null" ]]; then
-        echo "$tgz_url"
+        printf "%s" "$tgz_url"
         return 0
     fi
 
     local owner_repo
-    owner_repo=$(echo "$api_json" | jq -r '.repository.full_name // empty' 2>/dev/null)
+    owner_repo=$(printf "%s" "$api_json" | jq -r '.repository.full_name // empty' 2>/dev/null)
 
     if [[ -z "$owner_repo" ]] || [[ "$owner_repo" == "null" ]]; then
-        error "Cannot determine repository name from API response for $repo_key"
+        error "Cannot determine repository name from API response for $repo_key - skipping"
+        return 1
     fi
 
-    echo "https://github.com/${owner_repo}/archive/refs/tags/${tag_name}.tar.gz"
+    printf "%s" "https://github.com/${owner_repo}/archive/refs/tags/${tag_name}.tar.gz"
 }
 
 download_file() {
@@ -154,11 +162,14 @@ download_file() {
 
         if [[ $attempt -lt $MAX_RETRIES ]]; then
             warn "Download attempt $attempt/$MAX_RETRIES failed for $url - retrying..."
-            sleep $((2 ** attempt))
+            sleep 2
         else
             error "Failed to download $url after $MAX_RETRIES attempts"
+            return 1
         fi
     done
+
+    return 1
 }
 
 process_repo() {
@@ -167,20 +178,26 @@ process_repo() {
     info "Processing repository: $owner_repo"
 
     local api_json
-    api_json=$(fetch_latest_release "$owner_repo")
+    api_json=$(fetch_latest_release "$owner_repo") || return 1
 
     local tag_name
-    tag_name=$(echo "$api_json" | jq -r '.tag_name' 2>/dev/null)
+    tag_name=$(printf "%s" "$api_json" | jq -r '.tag_name // empty' 2>/dev/null)
+
+    if [[ -z "$tag_name" ]] || [[ "$tag_name" == "null" ]]; then
+        error "No valid tag_name for $owner_repo - skipping"
+        return 1
+    fi
 
     local download_url
-    download_url=$(get_download_url "$api_json" "$owner_repo")
+    download_url=$(get_download_url "$api_json" "$owner_repo") || return 1
 
     if [[ -z "$download_url" ]]; then
-        error "No valid download URL for $owner_repo"
+        error "No valid download URL for $owner_repo - skipping"
+        return 1
     fi
 
     local repo_name
-    repo_name=$(echo "$owner_repo" | sed 's/.*\///')
+    repo_name=$(printf "%s" "$owner_repo" | sed 's/.*\///')
     local filename="${repo_name}-${tag_name}.tgz"
 
     if [[ "$download_url" == *.tar.gz ]]; then
@@ -191,15 +208,16 @@ process_repo() {
 
     mkdir -p "$OUTPUT_DIR"
 
-    download_file "$download_url" "$output_path"
+    download_file "$download_url" "$output_path" || return 1
 
     info "Saved: $filename"
+    return 0
 }
 
 update_values_yaml() {
     if [[ ! -f "$VALUES_FILE" ]]; then
         warn "values.yaml not found at $VALUES_FILE - skipping update"
-        return
+        return 0
     fi
 
     local utc_timestamp
@@ -233,34 +251,47 @@ main() {
     info "Output directory: $OUTPUT_DIR"
     info "Values file: $VALUES_FILE"
 
-    validate_tools
+    if ! validate_tools; then
+        error "Tool validation failed"
+        return 1
+    fi
 
     mkdir -p "$OUTPUT_DIR"
 
-    local failed=0
+    local processed_count=0
+    local failed_count=0
+    local skipped_count=0
+
     for owner_repo in "${REPOS[@]}"; do
-        if ! process_repo "$owner_repo"; then
-            failed=$((failed + 1))
+        if process_repo "$owner_repo"; then
+            ((processed_count++))
+        else
+            ((failed_count++))
+            ((skipped_count++))
         fi
     done
 
-    if [[ $failed -gt 0 ]]; then
-        error "$failed repository(ies) failed to process"
-    fi
-
-    update_values_yaml
+    update_values_yaml || warn "Failed to update values.yaml"
 
     info "=== Summary ==="
-    info "Downloaded artifacts:"
-    if ls -lh "$OUTPUT_DIR"/* >/dev/null 2>&1; then
-        ls -lh "$OUTPUT_DIR"/* | while read -r line; do
-            info "  $line"
-        done
-    else
-        warn "No artifacts found in $OUTPUT_DIR"
+    info "Processed: $processed_count successful, $skipped_count skipped"
+
+    if [[ -d "$OUTPUT_DIR" ]]; then
+        local count=0
+        count=$(find "$OUTPUT_DIR" -type f | wc -l)
+        info "Total artifacts downloaded: $count"
+        if [[ $count -gt 0 ]]; then
+            find "$OUTPUT_DIR" -type f -exec ls -lh {} \; | while read -r line; do
+                info "  $line"
+            done
+        fi
     fi
 
-    info "Script completed successfully"
+    if [[ $skipped_count -gt 0 ]]; then
+        warn "Some repositories were skipped - check logs above"
+    fi
+
+    info "Script completed"
 }
 
 main "$@"
