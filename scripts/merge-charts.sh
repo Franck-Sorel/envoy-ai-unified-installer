@@ -106,7 +106,7 @@ fetch_latest_release() {
         fi
     done
 
-    if ! printf "%s" "$api_response" | jq empty 2>/dev/null; then
+    if ! jq empty 2>/dev/null <<< "$api_response"; then
         error "Invalid JSON response from GitHub API for $owner_repo"
         warn "Raw response: ${api_response:0:200}"
         return 1
@@ -120,7 +120,7 @@ get_download_url() {
     local repo_key="$2"
 
     local tag_name
-    tag_name=$(printf "%s" "$api_json" | jq -r '.tag_name // empty' 2>/dev/null)
+    tag_name=$(jq -r '.tag_name // empty' 2>/dev/null <<< "$api_json")
 
     if [[ -z "$tag_name" ]] || [[ "$tag_name" == "null" ]]; then
         error "No tag_name in API response for $repo_key - skipping"
@@ -130,7 +130,7 @@ get_download_url() {
     info "Extracted tag_name for $repo_key: $tag_name"
 
     local tgz_url
-    tgz_url=$(printf "%s" "$api_json" | jq -r '.assets[] | select(.browser_download_url | endswith(".tgz")) | .browser_download_url' 2>/dev/null | head -n 1 || true)
+    tgz_url=$( jq -r '.assets[] | select(.browser_download_url | endswith(".tgz")) | .browser_download_url' 2>/dev/null <<< "$api_json" | head -n 1 || true)
 
     if [[ -n "$tgz_url" ]] && [[ "$tgz_url" != "null" ]]; then
         printf "%s" "$tgz_url"
@@ -138,7 +138,7 @@ get_download_url() {
     fi
 
     local owner_repo
-    owner_repo=$(printf "%s" "$api_json" | jq -r '.repository.full_name // empty' 2>/dev/null)
+    owner_repo=$(jq -r '.repository.full_name // empty' 2>/dev/null <<< "$api_json")
 
     if [[ -z "$owner_repo" ]] || [[ "$owner_repo" == "null" ]]; then
         error "Cannot determine repository name from API response for $repo_key - skipping"
@@ -183,7 +183,7 @@ process_repo() {
     api_json=$(fetch_latest_release "$owner_repo") || return 1
 
     local tag_name
-    tag_name=$(printf "%s" "$api_json" | jq -r '.tag_name // empty' 2>/dev/null)
+    tag_name=$(jq -r '.tag_name // empty' 2>/dev/null <<< "$api_json")
 
     if [[ -z "$tag_name" ]] || [[ "$tag_name" == "null" ]]; then
         error "No valid tag_name for $owner_repo - skipping"
