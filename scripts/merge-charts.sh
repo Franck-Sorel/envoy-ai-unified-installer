@@ -69,13 +69,13 @@ fetch_latest_release() {
     local owner_repo="$1"
     local api_url="https://api.github.com/repos/${owner_repo}/releases/latest"
 
-    info "Fetching latest release: $owner_repo"
+    info "Fetching latest release from: $api_url"
 
     local http_code
     local api_response
 
     for attempt in 1 2 3; do
-        http_code=$(curl -s -w "%{http_code}" -o /tmp/api_response.json \
+        http_code=$(curl -sL -w "%{http_code}" -o /tmp/api_response.json \
             $(get_auth_headers) \
             "$api_url" 2>/dev/null || printf "%s" "000")
 
@@ -126,6 +126,8 @@ get_download_url() {
         error "No tag_name in API response for $repo_key - skipping"
         return 1
     fi
+
+    info "Extracted tag_name for $repo_key: $tag_name"
 
     local tgz_url
     tgz_url=$(printf "%s" "$api_json" | jq -r '.assets[] | select(.browser_download_url | endswith(".tgz")) | .browser_download_url' 2>/dev/null | head -n 1 || true)
