@@ -80,8 +80,19 @@ fetch_latest_release() {
             "$api_url" 2>/dev/null || printf "%s" "000")
 
         if [[ "$http_code" == "200" ]]; then
-            api_response=$(<"/tmp/api_response.json")
-            break
+            if [[ -f "/tmp/api_response.json" ]] && [[ -s "/tmp/api_response.json" ]]; then
+                api_response=$(<"/tmp/api_response.json")
+                break
+            else
+                warn "HTTP 200 but response file empty - attempt $attempt/$MAX_RETRIES"
+                if [[ $attempt -lt $MAX_RETRIES ]]; then
+                    sleep $((2 ** attempt))
+                    continue
+                else
+                    error "Empty response from API after $MAX_RETRIES attempts"
+                    return 1
+                fi
+            fi
         elif [[ "$http_code" == "403" ]]; then
             warn "Rate limited or forbidden (HTTP $http_code) for $owner_repo - attempt $attempt/$MAX_RETRIES"
             if [[ $attempt -lt $MAX_RETRIES ]]; then
@@ -105,6 +116,11 @@ fetch_latest_release() {
             fi
         fi
     done
+
+    if [[ -z "$api_response" ]]; then
+        error "API response is empty for $owner_repo"
+        return 1
+    fi
 
     if ! jq empty 2>/dev/null <<< "$api_response"; then
         error "Invalid JSON response from GitHub API for $owner_repo"
