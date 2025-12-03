@@ -1,0 +1,64 @@
+{
+  "extends": ["@commitlint/config-conventional"],
+  "rules": {
+    "type-enum": [
+      2,
+      "always",
+      [
+        "feat",
+        "fix",
+        "docs",
+        "style",
+        "refactor",
+        "perf",
+        "test",
+        "chore",
+        "ci",
+        "revert"
+      ]
+    ],
+    "type-case": [2, "always", "lowercase"],
+    "type-empty": [2, "never"],
+    "scope-case": [2, "always", "lowercase"],
+    "scope-empty": [0],
+    "scope-enum": [
+      2,
+      "always",
+      [
+        "cli",
+        "install",
+        "config",
+        "helm",
+        "upstream",
+        "doctor",
+        "version",
+        "ci",
+        "docs",
+        "scripts",
+        "deps"
+      ]
+    ],
+    "subject-case": [2, "never", ["start-case", "pascal-case", "upper-case"]],
+    "subject-empty": [2, "never"],
+    "subject-full-stop": [2, "never", "."],
+    "subject-exclamation-mark": [0],
+    "subject-max-length": [2, "always", 72],
+    "header-max-length": [2, "always", 100],
+    "body-leading-blank": [2, "always"],
+    "body-empty": [0],
+    "body-max-line-length": [2, "always", 100],
+    "footer-leading-blank": [2, "always"],
+    "footer-empty": [0],
+    "footer-max-line-length": [2, "always", 100],
+    "references-empty": [0],
+    "references": [2, "always"]
+  },
+  "parserPresets": [
+    {
+      "parserOpts": {
+        "noteKeywords": ["BREAKING CHANGE", "BREAKING-CHANGE"],
+        "issuePrefixes": ["#", "JIRA-"]
+      }
+    }
+  ]
+}

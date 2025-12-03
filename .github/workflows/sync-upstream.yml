@@ -1,0 +1,39 @@
+name: Sync Upstream Releases
+on:
+  schedule:
+    - cron: '0 */6 * * *'
+  workflow_dispatch: {}
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node (for Helm packaging scripts)
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Install Helm
+        uses: azure/setup-helm@v3
+
+      - name: Run merge script
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          chmod +x scripts/merge-charts.sh
+          ./scripts/merge-charts.sh
+
+      - name: Commit & push changes if any
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if ! git diff --staged --quiet; then
+            git commit -m "ci: sync upstream charts $(date -u)"
+            git push
+          else
+            echo "No changes"
+          fi

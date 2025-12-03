@@ -1,0 +1,16 @@
+upstreams:
+  - name: envoy-gateway
+    repo: "https://charts.envoyproxy.io"
+    chart: "gateway"
+    version: "latest"
+  - name: ai-gateway-controller
+    repo: "https://example.com/ai-gateway-helm"
+    chart: "ai-gateway"
+    version: "latest"
+  - name: ai-gateway-crds
+    repo: "https://example.com/ai-gateway-crds-helm"
+    chart: "ai-gateway-crds"
+    version: "latest"
+
+redis:
+  enabled: false

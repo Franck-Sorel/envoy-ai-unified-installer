@@ -1,0 +1,80 @@
+# Binaries
+envoy-ai-installer
+*.exe
+*.dll
+*.so
+*.dylib
+bin/
+dist/
+
+# Go
+*.o
+*.a
+*.so
+.DS_Store
+vendor/
+go.sum
+cli/go.sum
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+.project
+.classpath
+.c9/
+*.launch
+.settings/
+*.sublime-workspace
+.env.local
+.env.*.local
+
+# Test coverage
+coverage.out
+*.coverprofile
+.coverage
+
+# CI/CD
+.env
+.env.local
+.env.*.local
+.env.*.local.php
+
+# Logs
+*.log
+.merge-charts.log
+
+# Helm
+packaged/
+helm-wrapper/upstream-charts/*.tgz
+helm-wrapper/upstream-charts/*.tar.gz
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+.tmp/
+
+# Build artifacts
+*.out
+build/
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Local config
+~/.envoy-ai-installer/
+
+# Node modules (if using any node scripts)
+node_modules/
+package-lock.json
+yarn.lock
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
