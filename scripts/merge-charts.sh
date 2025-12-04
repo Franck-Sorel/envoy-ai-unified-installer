@@ -79,7 +79,7 @@ fetch_latest_release() {
     local http_code
     local api_response
 
-for attempt in 1 2 3; do
+    for attempt in 1 2 3; do
         info "Attempt $attempt/$MAX_RETRIES: Calling GitHub API..."
         http_code=$(curl -sL -w "%{http_code}" -o /tmp/api_response.json \
             $(get_auth_headers) \
@@ -91,55 +91,38 @@ for attempt in 1 2 3; do
                 break
             else
                 warn "HTTP 200 but response file empty - attempt $attempt/$MAX_RETRIES"
-                if [[ $attempt -lt $MAX_RETRIES ]]; then
-                    sleep $((2 ** attempt))
-                    continue
-                else
-                    error "Empty response from API after $MAX_RETRIES attempts"
-                    return 1
-                fi
+                [[ $attempt -lt $MAX_RETRIES ]] && sleep $((2 ** attempt)) && continue || { error "Empty response from API"; return 1; }
             fi
         elif [[ "$http_code" == "403" ]]; then
-            warn "Rate limited or forbidden (HTTP $http_code) for $owner_repo - attempt $attempt/$MAX_RETRIES"
-            if [[ $attempt -lt $MAX_RETRIES ]]; then
-                sleep $((2 ** attempt))
-                continue
-            else
-                error "Failed to fetch $owner_repo: HTTP $http_code (rate limit exceeded)"
-                return 1
-            fi
+            warn "Rate limited (HTTP $http_code) - attempt $attempt/$MAX_RETRIES"
+            [[ $attempt -lt $MAX_RETRIES ]] && sleep $((2 ** attempt)) && continue || { error "Rate limit exceeded"; return 1; }
         elif [[ "$http_code" == "404" ]]; then
-            error "Repository not found: $owner_repo (HTTP 404)"
+            error "Repository not found: $owner_repo"
             return 1
         else
-            warn "HTTP $http_code from $api_url for $owner_repo - attempt $attempt/$MAX_RETRIES"
-            if [[ $attempt -lt $MAX_RETRIES ]]; then
-                sleep $((2 ** attempt))
-                continue
-            else
-                error "Failed to fetch $owner_repo after $MAX_RETRIES attempts"
-                return 1
-            fi
+            warn "HTTP $http_code - attempt $attempt/$MAX_RETRIES"
+            [[ $attempt -lt $MAX_RETRIES ]] && sleep $((2 ** attempt)) && continue || { error "Failed after retries"; return 1; }
         fi
     done
 
     if [[ -z "$api_response" ]]; then
-        error "API response is empty for $owner_repo"
+        error "API response is empty"
         return 1
     fi
 
-    if ! jq empty 2>/dev/null <<< "$api_response"; then
-        error "Invalid JSON response from GitHub API for $owner_repo"
-        warn "Raw response: ${api_response:0:200}"
+    if ! jq empty <<< "$api_response" 2>/dev/null; then
+        error "Invalid JSON response"
+        warn "Raw: ${api_response:0:200}"
         return 1
     fi
 
+    # Extract first release for envoyproxy/gateway
     if [[ "$owner_repo" == "envoyproxy/gateway" ]]; then
-        api_response=$(jq '.[0]' 2>/dev/null <<< "$api_response")
+        api_response=$(jq -r '.[0]' <<< "$api_response")
     fi
 
     printf "%s" "$api_response"
-}
+}   
 
 get_download_url() {
     local api_json="$1"
