@@ -1,7 +1,7 @@
 name: Sync Upstream Releases
 on:
-  schedule:
-    - cron: '0 */6 * * *'
+  # schedule:
+  #   - cron: '0 */6 * * *'
   workflow_dispatch: {}
 
 permissions:
@@ -25,9 +25,9 @@ jobs:
           script: |
             const repos = {
               "envoyproxy/gateway": "gateway",
-              "envoyproxy/ai-gateway-helm": "ai_gateway_helm",
-              "envoyproxy/ai-gateway-crds-helm": "ai_gateway_crds_helm"
-            };
+              "envoyproxy/ai-gateway": "ai_gateway_helm",  // Correct repo
+              "envoyproxy/ai-gateway": "ai_gateway_crds_helm" // Same source
+            };   
             
             for (const [repo, outputKey] of Object.entries(repos)) {
               const [owner, repoName] = repo.split('/');
