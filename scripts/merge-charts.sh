@@ -146,7 +146,7 @@ get_download_url() {
     local repo_key="$2"
 
     local tag_name
-    tag_name=$(jq -r '.tag_name // empty' 2>/dev/null <<< "$api_json")
+    tag_name=$(echo "$api_json" | jq -r '.tag_name // empty' 2>/dev/null | sed 's/^v//')
 
     if [[ -z "$tag_name" ]] || [[ "$tag_name" == "null" ]]; then
         error "No tag_name in API response for $repo_key - skipping"
@@ -208,8 +208,13 @@ process_repo() {
     local api_json
     api_json=$(fetch_latest_release "$owner_repo") || return 1
 
+    if [[ -z "$api_json" ]]; then
+        error "Empty API response for $owner_repo - skipping"
+        return 1
+    fi
+
     local tag_name
-    tag_name=$(jq -r '.tag_name // empty' 2>/dev/null <<< "$api_json")
+    tag_name=$(echo "$api_json" | jq -r '.tag_name // empty' 2>/dev/null | sed 's/^v//')
 
     if [[ -z "$tag_name" ]] || [[ "$tag_name" == "null" ]]; then
         error "No valid tag_name for $owner_repo - skipping"
