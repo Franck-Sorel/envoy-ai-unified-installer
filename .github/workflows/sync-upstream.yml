@@ -5,9 +5,9 @@ on:
   workflow_dispatch: {}
 
 permissions:
-  contents: read
-  packages: write
-  
+  contents: write
+  packages: read
+
 jobs:
   sync:
     runs-on: ubuntu-latest
@@ -15,29 +15,108 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up Node (for Helm packaging scripts)
-        uses: actions/setup-node@v4
-        with:
-          node-version: '18'
-
       - name: Install Helm
         uses: azure/setup-helm@v3
 
-      - name: Run merge script
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          chmod +x scripts/merge-charts.sh
-          ./scripts/merge-charts.sh
+      - name: Fetch Latest Releases & Set Outputs
+        id: fetch_releases
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const repos = {
+              "envoyproxy/gateway": "gateway",
+              "envoyproxy/ai-gateway-helm": "ai_gateway_helm",
+              "envoyproxy/ai-gateway-crds-helm": "ai_gateway_crds_helm"
+            };
+            
+            for (const [repo, outputKey] of Object.entries(repos)) {
+              const [owner, repoName] = repo.split('/');
+              try {
+                const res = await github.rest.repos.listReleases({
+                  owner: owner,
+                  repo: repoName,
+                  per_page: 1
+                });
+                
+                if (res.data.length === 0) {
+                  core.warning(`No releases found for ${repo}`);
+                  continue;
+                }
+                
+                const tagName = res.data[0].tag_name;
+                core.setOutput(outputKey, tagName);
+                console.log(`✓ ${repo}: ${tagName}`);
+              } catch (error) {
+                core.setFailed(`Failed to fetch release for ${repo}: ${error.message}`);
+              }
+            }
 
-      - name: Commit & push changes if any
+      - name: Create Charts Directory
+        run: mkdir -p helm-wrapper/upstream-charts
+
+      - name: Download Envoy Gateway Chart
+        if: steps.fetch_releases.outputs.gateway != ''
+        run: |
+          helm pull oci://docker.io/envoyproxy/gateway-helm \
+            --version ${{ steps.fetch_releases.outputs.gateway }} \
+            --destination helm-wrapper/upstream-charts \
+            --untar=false || echo "Chart pull failed, continuing..."
+
+      - name: Download AI Gateway Helm Chart
+        if: steps.fetch_releases.outputs.ai_gateway_helm != ''
+        run: |
+          helm pull oci://docker.io/envoyproxy/ai-gateway-helm \
+            --version ${{ steps.fetch_releases.outputs.ai_gateway_helm }} \
+            --destination helm-wrapper/upstream-charts \
+            --untar=false || echo "Chart pull failed, continuing..."
+
+      - name: Download AI Gateway CRDs Helm Chart
+        if: steps.fetch_releases.outputs.ai_gateway_crds_helm != ''
+        run: |
+          helm pull oci://docker.io/envoyproxy/ai-gateway-crds-helm \
+            --version ${{ steps.fetch_releases.outputs.ai_gateway_crds_helm }} \
+            --destination helm-wrapper/upstream-charts \
+            --untar=false || echo "Chart pull failed, continuing..."
+
+      - name: Update values.yaml with Release Info
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const yaml = require('js-yaml');
+            
+            const valuesPath = 'helm-wrapper/values.yaml';
+            const valuesContent = fs.readFileSync(valuesPath, 'utf8');
+            let values = yaml.load(valuesContent) || {};
+            
+            values.generated_at = new Date().toISOString();
+            values.upstreams = [
+              {
+                name: "envoy-gateway",
+                version: "${{ steps.fetch_releases.outputs.gateway }}"
+              },
+              {
+                name: "ai-gateway-helm",
+                version: "${{ steps.fetch_releases.outputs.ai_gateway_helm }}"
+              },
+              {
+                name: "ai-gateway-crds-helm",
+                version: "${{ steps.fetch_releases.outputs.ai_gateway_crds_helm }}"
+              }
+            ];
+            
+            fs.writeFileSync(valuesPath, yaml.dump(values, { lineWidth: -1 }));
+            console.log('✓ Updated values.yaml with latest versions');
+
+      - name: Commit & Push Changes
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add -A
+          git add helm-wrapper/
           if ! git diff --staged --quiet; then
-            git commit -m "ci: sync upstream charts $(date -u)"
+            git commit -m "ci: sync upstream charts - ${{ steps.fetch_releases.outputs.gateway }}, ${{ steps.fetch_releases.outputs.ai_gateway_helm }}, ${{ steps.fetch_releases.outputs.ai_gateway_crds_helm }}"
             git push
+            echo "✓ Changes committed and pushed"
           else
-            echo "No changes"
+            echo "ℹ No changes detected"
           fi
