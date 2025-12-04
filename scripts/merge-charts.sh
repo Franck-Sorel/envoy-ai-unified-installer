@@ -69,15 +69,21 @@ fetch_latest_release() {
     local owner_repo="$1"
     local api_url="https://api.github.com/repos/${owner_repo}/releases/latest"
 
-    info "Fetching latest release from: $api_url"
+    if [[ "$owner_repo" == "envoyproxy/gateway" ]]; then
+        api_url="https://api.github.com/repos/${owner_repo}/releases?per_page=1"
+        info "Fetching latest release (including pre-releases) from: $api_url"
+    else
+        info "Fetching latest release from: $api_url"
+    fi
 
     local http_code
     local api_response
 
-    for attempt in 1 2 3; do
+for attempt in 1 2 3; do
+        info "Attempt $attempt/$MAX_RETRIES: Calling GitHub API..."
         http_code=$(curl -sL -w "%{http_code}" -o /tmp/api_response.json \
             $(get_auth_headers) \
-            "$api_url" 2>/dev/null || printf "%s" "000")
+            "$api_url" 2>/tmp/curl_error.log || printf "%s" "000")
 
         if [[ "$http_code" == "200" ]]; then
             if [[ -f "/tmp/api_response.json" ]] && [[ -s "/tmp/api_response.json" ]]; then
@@ -126,6 +132,10 @@ fetch_latest_release() {
         error "Invalid JSON response from GitHub API for $owner_repo"
         warn "Raw response: ${api_response:0:200}"
         return 1
+    fi
+
+    if [[ "$owner_repo" == "envoyproxy/gateway" ]]; then
+        api_response=$(jq '.[0]' 2>/dev/null <<< "$api_response")
     fi
 
     printf "%s" "$api_response"
