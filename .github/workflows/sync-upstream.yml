@@ -78,36 +78,28 @@ jobs:
             --destination helm-wrapper/upstream-charts \
             --untar=false || echo "Chart pull failed, continuing..."
 
-      - name: Update values.yaml with Release Info
-        uses: actions/github-script@v7
+      - name: Setup Node with js-yaml
+        uses: actions/setup-node@v4
         with:
-          script: |
+          node-version: '20'
+          registry-url: 'https://npm.pkg.github.com'
+        run: npm install js-yaml
+      
+      - name: Update values.yaml with Release Info
+        run: |
+          node -e "
             const fs = require('fs');
             const yaml = require('js-yaml');
-            
-            const valuesPath = 'helm-wrapper/values.yaml';
-            const valuesContent = fs.readFileSync(valuesPath, 'utf8');
-            let values = yaml.load(valuesContent) || {};
-            
-            values.generated_at = new Date().toISOString();
-            values.upstreams = [
-              {
-                name: "envoy-gateway",
-                version: "${{ steps.fetch_releases.outputs.gateway }}"
-              },
-              {
-                name: "ai-gateway-helm",
-                version: "${{ steps.fetch_releases.outputs.ai_gateway_helm }}"
-              },
-              {
-                name: "ai-gateway-crds-helm",
-                version: "${{ steps.fetch_releases.outputs.ai_gateway_crds_helm }}"
-              }
+            const data = yaml.load(fs.readFileSync('helm-wrapper/values.yaml', 'utf8'));
+            data.generated_at = new Date().toISOString();
+            data.upstreams = [
+              { name: 'envoy-gateway', version: '${{ steps.fetch_releases.outputs.gateway }}' },
+              { name: 'ai-gateway-helm', version: '${{ steps.fetch_releases.outputs.ai_gateway_helm }}' },
+              { name: 'ai-gateway-crds-helm', version: '${{ steps.fetch_releases.outputs.ai_gateway_crds_helm }}' }
             ];
-            
-            fs.writeFileSync(valuesPath, yaml.dump(values, { lineWidth: -1 }));
-            console.log('✓ Updated values.yaml with latest versions');
-
+            fs.writeFileSync('helm-wrapper/values.yaml', yaml.dump(data, { lineWidth: -1 }));
+          "   
+      
       - name: Commit & Push Changes
         run: |
           git config user.name "github-actions[bot]"
